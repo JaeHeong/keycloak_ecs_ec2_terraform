@@ -92,7 +92,7 @@ resource "aws_autoscaling_group" "ecs_autoscaling_group" {
   min_size              = var.desired-count
   vpc_zone_identifier   = var.private-subnets
   health_check_type     = "EC2"
-  protect_from_scale_in = false
+  protect_from_scale_in = true
 
   enabled_metrics = [
     "GroupMinSize",

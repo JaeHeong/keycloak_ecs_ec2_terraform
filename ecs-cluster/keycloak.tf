@@ -215,28 +215,33 @@ resource "aws_db_parameter_group" "keycloak" {
   family = "mysql8.0"
 
   parameter {
-    name  = "character_set_server"
-    value = "utf8mb4"
+    name         = "character_set_server"
+    value        = "utf8mb4"
+    apply_method = "pending-reboot"
   }
 
   parameter {
-    name  = "collation_server"
-    value = "utf8mb4_unicode_ci"
+    name         = "collation_server"
+    value        = "utf8mb4_unicode_ci"
+    apply_method = "pending-reboot"
   }
 
   parameter {
-    name  = "explicit_defaults_for_timestamp"
-    value = "1"
+    name         = "explicit_defaults_for_timestamp"
+    value        = "1"
+    apply_method = "pending-reboot"
   }
 
   parameter {
-    name  = "lower_case_table_names"
-    value = "1"
+    name         = "lower_case_table_names"
+    value        = "1"
+    apply_method = "pending-reboot"
   }
 
   parameter {
-    name  = "time_zone"
-    value = "Asia/Seoul"
+    name         = "time_zone"
+    value        = "Asia/Seoul"
+    apply_method = "pending-reboot"
   }
 }
 
@@ -246,7 +251,8 @@ resource "aws_db_subnet_group" "keycloak" {
 }
 
 resource "aws_db_instance" "keycloak" {
-  identifier            = "keycloak-1"
+  identifier = "keycloak-1"
+  # identifier            = "${var.name}-db"
   instance_class        = var.db-instance-type
   allocated_storage     = 5
   max_allocated_storage = 20
@@ -388,7 +394,7 @@ data "aws_iam_policy_document" "ec2_instance_role_policy" {
 resource "aws_ecs_task_definition" "keycloak" {
   family                   = var.name
   network_mode             = "awsvpc"
-  requires_compatibilities = ["FARGATE"]
+  requires_compatibilities = ["EC2"]
   # 1024 cpu units = 1 vCPU
   cpu                = 512
   memory             = 1024
