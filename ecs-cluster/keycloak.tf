@@ -32,13 +32,20 @@ locals {
   db_private_subnets = length(var.db-private-subnets) == 0 ? module.vpc[0].private_subnets : var.db-private-subnets
 }
 
+resource "random_string" "initial-keycloak-password" {
+  length = 20
+}
+
+resource "random_string" "secretmanager_name" {
+  length  = 3
+  upper   = false
+  special = false
+  numeric = false
+}
+
 resource "random_password" "db-password" {
   length  = 20
   special = false
-}
-
-resource "random_string" "initial-keycloak-password" {
-  length = 20
 }
 
 # Networking
@@ -48,8 +55,8 @@ resource "aws_security_group" "rds" {
   vpc_id = local.vpc_id
 
   ingress {
-    from_port       = 5432
-    to_port         = 5432
+    from_port       = 3306
+    to_port         = 3306
     protocol        = "tcp"
     security_groups = [aws_security_group.ecs-task-keycloak.id]
   }
@@ -192,21 +199,50 @@ resource "aws_lb_listener_rule" "https_redirect_canonical" {
   }
 }
 
-# PostgreSQL
+# MySQL
+
+resource "aws_secretsmanager_secret" "db_password" {
+  name = "${var.name}-db-password-${random_string.secretmanager_name.result}"
+}
+
+resource "aws_secretsmanager_secret_version" "db_password" {
+  secret_id     = aws_secretsmanager_secret.db_password.id
+  secret_string = random_password.db-password.result
+}
 
 resource "aws_db_parameter_group" "keycloak" {
   name   = "${var.name}-keycloak"
-  family = "postgres14"
+  family = "mysql8.0"
 
   parameter {
-    name  = "log_connections"
+    name  = "character_set_server"
+    value = "utf8mb4"
+  }
+
+  parameter {
+    name  = "collation_server"
+    value = "utf8mb4_unicode_ci"
+  }
+
+  parameter {
+    name  = "explicit_defaults_for_timestamp"
     value = "1"
+  }
+
+  parameter {
+    name  = "lower_case_table_names"
+    value = "1"
+  }
+
+  parameter {
+    name  = "time_zone"
+    value = "Asia/Seoul"
   }
 }
 
 resource "aws_db_subnet_group" "keycloak" {
   name       = "${var.name}-keycloak"
-  subnet_ids = local.private_subnets
+  subnet_ids = local.db_private_subnets
 }
 
 resource "aws_db_instance" "keycloak" {
@@ -214,12 +250,9 @@ resource "aws_db_instance" "keycloak" {
   instance_class        = var.db-instance-type
   allocated_storage     = 5
   max_allocated_storage = 20
-  engine                = "postgres"
-  # TODO: try serverless?
-  # engine = "aurora-postgresql"
-  # auto_minor_version_upgrade defaults to True, so this will be auto-upgraded to the  most recent 14.*
-  engine_version    = "14"
-  storage_encrypted = true
+  engine                = "mysql"
+  engine_version        = "8.0"
+  storage_encrypted     = false
 
   # By default changes are queued up for the maintenance window
   # If keycloak desired-count=0 then we can apply straight away
@@ -227,26 +260,23 @@ resource "aws_db_instance" "keycloak" {
 
   # Max 35 days https://aws.amazon.com/rds/features/backup/
   backup_retention_period  = 1
-  delete_automated_backups = false
+  delete_automated_backups = true
   deletion_protection      = false
 
-  db_name                = var.db-name
-  username               = var.db-username
-  password               = random_password.db-password.result
-  db_subnet_group_name   = aws_db_subnet_group.keycloak.name
-  vpc_security_group_ids = [aws_security_group.rds.id]
-  parameter_group_name   = aws_db_parameter_group.keycloak.name
-  publicly_accessible    = false
-  skip_final_snapshot    = false
+  db_name                      = var.db-name
+  username                     = var.db-username
+  password                     = aws_secretsmanager_secret_version.db_password.secret_string
+  db_subnet_group_name         = aws_db_subnet_group.keycloak.name
+  vpc_security_group_ids       = [aws_security_group.rds.id]
+  parameter_group_name         = aws_db_parameter_group.keycloak.name
+  publicly_accessible          = false
+  skip_final_snapshot          = true
+  performance_insights_enabled = false
 
   snapshot_identifier = var.db-snapshot-identifier
-
-  lifecycle {
-    prevent_destroy = false
-  }
 }
 
-# IAM
+# task execution role
 
 resource "aws_iam_role" "ecs_task_execution_role" {
   name = "${var.name}-ecsTaskExecutionRole"
@@ -265,7 +295,31 @@ resource "aws_iam_role" "ecs_task_execution_role" {
   })
 
   managed_policy_arns = [
-    "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+    "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy",
+    "arn:aws:iam::aws:policy/SecretsManagerReadWrite"
+  ]
+}
+
+# task task role
+
+resource "aws_iam_role" "ecs_task_role" {
+  name = "${var.name}-ecsTaskRole"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole",
+        Principal = {
+          Service = "ecs-tasks.amazonaws.com"
+        }
+        Effect = "Allow"
+      }
+    ]
+  })
+
+  managed_policy_arns = [
+    "arn:aws:iam::aws:policy/AdministratorAccess"
   ]
 }
 
@@ -279,7 +333,7 @@ resource "aws_launch_template" "ecs_launch_template" {
   instance_type          = var.instance-type
   key_name               = var.key_name
   user_data              = base64encode(data.template_file.user_data.rendered)
-  vpc_security_group_ids = [aws_security_group.ec2.id]
+  vpc_security_group_ids = [aws_security_group.ecs-task-keycloak.id]
 
   iam_instance_profile {
     arn = aws_iam_instance_profile.ec2_instance_role_profile.arn
@@ -339,7 +393,7 @@ resource "aws_ecs_task_definition" "keycloak" {
   cpu                = 512
   memory             = 1024
   execution_role_arn = aws_iam_role.ecs_task_execution_role.arn
-  # task_role_arn      = aws_iam_role.ecs_task_role.arn
+  task_role_arn      = aws_iam_role.ecs_task_role.arn
   container_definitions = jsonencode([{
     name  = "${var.name}-container"
     image = var.keycloak-image
@@ -349,7 +403,7 @@ resource "aws_ecs_task_definition" "keycloak" {
       # https://www.keycloak.org/server/all-config
       {
         name  = "KC_DB_URL"
-        value = "jdbc:postgresql://${aws_db_instance.keycloak.endpoint}/${aws_db_instance.keycloak.db_name}"
+        value = "jdbc:mysql://${aws_db_instance.keycloak.endpoint}/${aws_db_instance.keycloak.db_name}"
       },
       {
         name  = "KC_DB_USERNAME"
@@ -357,7 +411,7 @@ resource "aws_ecs_task_definition" "keycloak" {
       },
       {
         name  = "KC_DB_PASSWORD"
-        value = random_password.db-password.result
+        value = aws_secretsmanager_secret_version.db_password.secret_string
       },
       {
         name  = "KEYCLOAK_ADMIN"
@@ -411,6 +465,7 @@ resource "aws_ecs_service" "keycloak" {
   desired_count                      = var.desired-count
   deployment_minimum_healthy_percent = (var.desired-count < 1) ? 0 : 100
   deployment_maximum_percent         = max(100, var.desired-count * 200)
+  iam_role                           = aws_iam_role.ecs_service_role.arn
 
   network_configuration {
     security_groups = [
@@ -429,7 +484,69 @@ resource "aws_ecs_service" "keycloak" {
   # Java applications can be very slow to start
   health_check_grace_period_seconds = 180
 
-  # lifecycle {
-  #   ignore_changes = [desired_count]
-  # }
+  ## Spread tasks evenly accross all Availability Zones for High Availability
+  ordered_placement_strategy {
+    type  = "spread"
+    field = "attribute:ecs.availability-zone"
+  }
+
+  ## Make use of all available space on the Container Instances
+  ordered_placement_strategy {
+    type  = "binpack"
+    field = "memory"
+  }
+
+  ## Do not update desired count again to avoid a reset to this number on every deployment
+  lifecycle {
+    ignore_changes = [desired_count]
+  }
+
+  depends_on = [aws_iam_role.ecs_service_role]
+}
+
+# ECS service role
+
+resource "aws_iam_role" "ecs_service_role" {
+  name               = "${var.name}_ECS_ServiceRole"
+  assume_role_policy = data.aws_iam_policy_document.ecs_service_policy.json
+}
+
+data "aws_iam_policy_document" "ecs_service_policy" {
+  statement {
+    actions = ["sts:AssumeRole"]
+    effect  = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["ecs.amazonaws.com", ]
+    }
+  }
+}
+
+resource "aws_iam_role_policy" "ecs_service_role_policy" {
+  name   = "${var.name}_ECS_ServiceRolePolicy"
+  policy = data.aws_iam_policy_document.ecs_service_role_policy.json
+  role   = aws_iam_role.ecs_service_role.id
+}
+
+data "aws_iam_policy_document" "ecs_service_role_policy" {
+  statement {
+    effect = "Allow"
+    actions = [
+      "ec2:AuthorizeSecurityGroupIngress",
+      "ec2:Describe*",
+      "elasticloadbalancing:DeregisterInstancesFromLoadBalancer",
+      "elasticloadbalancing:DeregisterTargets",
+      "elasticloadbalancing:Describe*",
+      "elasticloadbalancing:RegisterInstancesWithLoadBalancer",
+      "elasticloadbalancing:RegisterTargets",
+      "ec2:DescribeTags",
+      "logs:CreateLogGroup",
+      "logs:CreateLogStream",
+      "logs:DescribeLogStreams",
+      "logs:PutSubscriptionFilter",
+      "logs:PutLogEvents"
+    ]
+    resources = ["*"]
+  }
 }

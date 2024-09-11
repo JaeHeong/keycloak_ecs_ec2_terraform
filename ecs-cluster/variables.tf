@@ -12,7 +12,7 @@ variable "region" {
 
 variable "keycloak-image" {
   type        = string
-  default     = "183631341851.dkr.ecr.ap-northeast-2.amazonaws.com/keycloak:1.0.0"
+  default     = "183631341851.dkr.ecr.ap-northeast-2.amazonaws.com/keycloak:1.0.1"
   description = "Keycloak image including registry"
 }
 
@@ -32,11 +32,7 @@ variable "public-subnets" {
   type = list(string)
   default = [
     "subnet-0b95fdbbf2e2d79d2",
-    "subnet-0add73dda201849a3",
-    "subnet-0768b8af03627bebc",
-    "subnet-0047b3b48d8a9d974",
-    "subnet-06000fd2aff11a39c",
-    "subnet-03358cd0e1f374f12"
+    "subnet-0add73dda201849a3"
   ]
   description = "Public subnet IDs, must be defined if vpc-id is provided"
 }
@@ -74,13 +70,13 @@ variable "db-private-subnets" {
 
 variable "db-name" {
   type        = string
-  default     = "keycloak"
+  default     = "giantstep_oauth"
   description = "Keycloak DB name"
 }
 
 variable "db-username" {
   type        = string
-  default     = "keycloak"
+  default     = "admin"
   description = "Keycloak DB username"
 }
 
@@ -98,6 +94,7 @@ variable "db-instance-type" {
 
 variable "loadbalancer-certificate-arn" {
   type        = string
+  default     = "arn:aws:acm:ap-northeast-2:183631341851:certificate/4d2f8e58-3e5e-47c1-9dfa-b702bca3b315"
   description = "ARN of the ACM certificate to use for the load balancer"
 }
 
@@ -119,11 +116,22 @@ variable "desired-count" {
   default     = 1
 }
 
+variable "cpu_target_tracking_desired_value" {
+  type        = number
+  description = "Number of Keycloak containers to run, set to 0 for DB maintenance"
+  default     = 75
+}
+
+variable "memory_target_tracking_desired_value" {
+  type        = number
+  description = "Number of Keycloak containers to run, set to 0 for DB maintenance"
+  default     = 75
+}
+
 variable "default-tags" {
   type = map(any)
   default = {
-    CreatedBy = "infra@example.org"
-    Proj      = "infra-keycloak"
+    Proj = "union+gims"
   }
   description = "Default AWS tags to apply to all resources"
 }
