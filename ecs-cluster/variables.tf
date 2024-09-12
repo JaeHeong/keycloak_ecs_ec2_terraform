@@ -48,13 +48,19 @@ variable "private-subnets" {
 
 variable "instance-type" {
   type        = string
-  default     = "t3.medium"
+  default     = "t3.large"
   description = ""
 }
 
 variable "key_name" {
   type        = string
   default     = "KEY-UNION+GIMS-SSH-ALPHA-APNE2"
+  description = ""
+}
+
+variable "ecs_namespace" {
+  type        = string
+  default     = "arn:aws:servicediscovery:ap-northeast-2:183631341851:namespace/ns-tmwbmbllubp3ev2h"
   description = ""
 }
 

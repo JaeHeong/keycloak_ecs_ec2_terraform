@@ -104,6 +104,12 @@ resource "aws_security_group" "ecs-task-keycloak" {
     to_port         = local.management-port
     security_groups = [aws_security_group.alb.id]
   }
+  ingress {
+    protocol    = "tcp"
+    from_port   = 22
+    to_port     = 22
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 
   egress {
     protocol    = "-1"
@@ -251,7 +257,7 @@ resource "aws_db_subnet_group" "keycloak" {
 }
 
 resource "aws_db_instance" "keycloak" {
-  identifier = "keycloak-1"
+  identifier = "${var.name}-keycloak-db"
   # identifier            = "${var.name}-db"
   instance_class        = var.db-instance-type
   allocated_storage     = 5
@@ -308,26 +314,26 @@ resource "aws_iam_role" "ecs_task_execution_role" {
 
 # task task role
 
-resource "aws_iam_role" "ecs_task_role" {
-  name = "${var.name}-ecsTaskRole"
+# resource "aws_iam_role" "ecs_task_role" {
+#   name = "${var.name}-ecsTaskRole"
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole",
-        Principal = {
-          Service = "ecs-tasks.amazonaws.com"
-        }
-        Effect = "Allow"
-      }
-    ]
-  })
+#   assume_role_policy = jsonencode({
+#     Version = "2012-10-17"
+#     Statement = [
+#       {
+#         Action = "sts:AssumeRole",
+#         Principal = {
+#           Service = "ecs-tasks.amazonaws.com"
+#         }
+#         Effect = "Allow"
+#       }
+#     ]
+#   })
 
-  managed_policy_arns = [
-    "arn:aws:iam::aws:policy/AdministratorAccess"
-  ]
-}
+#   managed_policy_arns = [
+#     "arn:aws:iam::aws:policy/AdministratorAccess"
+#   ]
+# }
 
 # Keycloak
 
@@ -396,10 +402,10 @@ resource "aws_ecs_task_definition" "keycloak" {
   network_mode             = "awsvpc"
   requires_compatibilities = ["EC2"]
   # 1024 cpu units = 1 vCPU
-  cpu                = 512
-  memory             = 1024
+  cpu                = 1024
+  memory             = 2048
   execution_role_arn = aws_iam_role.ecs_task_execution_role.arn
-  task_role_arn      = aws_iam_role.ecs_task_role.arn
+  # task_role_arn      = aws_iam_role.ecs_task_role.arn
   container_definitions = jsonencode([{
     name  = "${var.name}-container"
     image = var.keycloak-image
@@ -444,15 +450,20 @@ resource "aws_ecs_task_definition" "keycloak" {
         value = var.keycloak-loglevel
       },
     ]
-    portMappings = [{
-      protocol      = "tcp"
-      containerPort = local.container-port
-      hostPort      = local.container-port
-      }, {
-      protocol      = "tcp"
-      containerPort = local.management-port
-      hostPort      = local.management-port
-    }]
+    portMappings = [
+      {
+        protocol      = "tcp"
+        containerPort = local.container-port
+        hostPort      = local.container-port
+        name          = "keycloak-port"
+      },
+      {
+        protocol      = "tcp"
+        containerPort = local.management-port
+        hostPort      = local.management-port
+        name          = "keycloak-management-port"
+      }
+    ]
     logConfiguration = {
       logDriver = "awslogs"
       options = {
@@ -471,7 +482,7 @@ resource "aws_ecs_service" "keycloak" {
   desired_count                      = var.desired-count
   deployment_minimum_healthy_percent = (var.desired-count < 1) ? 0 : 100
   deployment_maximum_percent         = max(100, var.desired-count * 200)
-  iam_role                           = aws_iam_role.ecs_service_role.arn
+  launch_type                        = "EC2"
 
   network_configuration {
     security_groups = [
@@ -507,52 +518,65 @@ resource "aws_ecs_service" "keycloak" {
     ignore_changes = [desired_count]
   }
 
-  depends_on = [aws_iam_role.ecs_service_role]
-}
+  # ECS Service Connect configuration
+  service_connect_configuration {
+    enabled   = true
+    namespace = var.ecs_namespace
 
-# ECS service role
-
-resource "aws_iam_role" "ecs_service_role" {
-  name               = "${var.name}_ECS_ServiceRole"
-  assume_role_policy = data.aws_iam_policy_document.ecs_service_policy.json
-}
-
-data "aws_iam_policy_document" "ecs_service_policy" {
-  statement {
-    actions = ["sts:AssumeRole"]
-    effect  = "Allow"
-
-    principals {
-      type        = "Service"
-      identifiers = ["ecs.amazonaws.com", ]
+    service {
+      port_name      = "keycloak-port"
+      discovery_name = "keycloak"
+      client_alias {
+        port     = local.container-port
+        dns_name = "keycloak-service.local"
+      }
     }
   }
 }
 
-resource "aws_iam_role_policy" "ecs_service_role_policy" {
-  name   = "${var.name}_ECS_ServiceRolePolicy"
-  policy = data.aws_iam_policy_document.ecs_service_role_policy.json
-  role   = aws_iam_role.ecs_service_role.id
-}
+# ECS service role / awsvpc 네트워크 모드 사용시 불필요
 
-data "aws_iam_policy_document" "ecs_service_role_policy" {
-  statement {
-    effect = "Allow"
-    actions = [
-      "ec2:AuthorizeSecurityGroupIngress",
-      "ec2:Describe*",
-      "elasticloadbalancing:DeregisterInstancesFromLoadBalancer",
-      "elasticloadbalancing:DeregisterTargets",
-      "elasticloadbalancing:Describe*",
-      "elasticloadbalancing:RegisterInstancesWithLoadBalancer",
-      "elasticloadbalancing:RegisterTargets",
-      "ec2:DescribeTags",
-      "logs:CreateLogGroup",
-      "logs:CreateLogStream",
-      "logs:DescribeLogStreams",
-      "logs:PutSubscriptionFilter",
-      "logs:PutLogEvents"
-    ]
-    resources = ["*"]
-  }
-}
+# resource "aws_iam_role" "ecs_service_role" {
+#   name               = "${var.name}_ECS_ServiceRole"
+#   assume_role_policy = data.aws_iam_policy_document.ecs_service_policy.json
+# }
+
+# data "aws_iam_policy_document" "ecs_service_policy" {
+#   statement {
+#     actions = ["sts:AssumeRole"]
+#     effect  = "Allow"
+
+#     principals {
+#       type        = "Service"
+#       identifiers = ["ecs.amazonaws.com", ]
+#     }
+#   }
+# }
+
+# resource "aws_iam_role_policy" "ecs_service_role_policy" {
+#   name   = "${var.name}_ECS_ServiceRolePolicy"
+#   policy = data.aws_iam_policy_document.ecs_service_role_policy.json
+#   role   = aws_iam_role.ecs_service_role.id
+# }
+
+# data "aws_iam_policy_document" "ecs_service_role_policy" {
+#   statement {
+#     effect = "Allow"
+#     actions = [
+#       "ec2:AuthorizeSecurityGroupIngress",
+#       "ec2:Describe*",
+#       "elasticloadbalancing:DeregisterInstancesFromLoadBalancer",
+#       "elasticloadbalancing:DeregisterTargets",
+#       "elasticloadbalancing:Describe*",
+#       "elasticloadbalancing:RegisterInstancesWithLoadBalancer",
+#       "elasticloadbalancing:RegisterTargets",
+#       "ec2:DescribeTags",
+#       "logs:CreateLogGroup",
+#       "logs:CreateLogStream",
+#       "logs:DescribeLogStreams",
+#       "logs:PutSubscriptionFilter",
+#       "logs:PutLogEvents"
+#     ]
+#     resources = ["*"]
+#   }
+# }

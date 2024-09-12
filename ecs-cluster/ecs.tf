@@ -1,7 +1,7 @@
 # ecs
 resource "aws_cloudwatch_log_group" "ecs-logs" {
   name              = var.name
-  retention_in_days = 7
+  retention_in_days = 3
 }
 
 resource "aws_ecs_cluster" "ecs" {
@@ -24,7 +24,7 @@ resource "aws_ecs_capacity_provider" "cas" {
 
   auto_scaling_group_provider {
     auto_scaling_group_arn         = aws_autoscaling_group.ecs_autoscaling_group.arn
-    managed_termination_protection = "ENABLED"
+    managed_termination_protection = "DISABLED"
 
     managed_scaling {
       maximum_scaling_step_size = var.desired-count
@@ -108,14 +108,6 @@ resource "aws_autoscaling_group" "ecs_autoscaling_group" {
   launch_template {
     id      = aws_launch_template.ecs_launch_template.id
     version = "$Latest"
-  }
-
-  instance_refresh {
-    strategy = "Rolling"
-  }
-
-  lifecycle {
-    create_before_destroy = true
   }
 
   tag {

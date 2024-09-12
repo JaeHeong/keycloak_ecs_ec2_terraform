@@ -3,7 +3,7 @@
 ARG KEYCLOAK_VERSION=25.0.1
 FROM quay.io/keycloak/keycloak:$KEYCLOAK_VERSION as builder
 
-ENV KC_DB=postgres
+ENV KC_DB=mysql
 ENV KC_HOSTNAME=localhost
 ENV KC_HEALTH_ENABLED=true
 
