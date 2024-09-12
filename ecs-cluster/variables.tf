@@ -12,7 +12,7 @@ variable "region" {
 
 variable "keycloak-image" {
   type        = string
-  default     = "183631341851.dkr.ecr.ap-northeast-2.amazonaws.com/keycloak:1.0.1"
+  default     = ".ecr.ap-northeast-2.amazonaws.com/keycloak:1.0.1"
   description = "Keycloak image including registry"
 }
 
@@ -24,15 +24,15 @@ variable "lb-cidr-blocks-in" {
 
 variable "vpc-id" {
   type        = string
-  default     = "vpc-0e3f93088da88fd41"
+  default     = "vpc-"
   description = "VPC ID, if empty creates a new VPC"
 }
 
 variable "public-subnets" {
   type = list(string)
   default = [
-    "subnet-0b95fdbbf2e2d79d2",
-    "subnet-0add73dda201849a3"
+    "subnet-",
+    "subnet-"
   ]
   description = "Public subnet IDs, must be defined if vpc-id is provided"
 }
@@ -40,8 +40,8 @@ variable "public-subnets" {
 variable "private-subnets" {
   type = list(string)
   default = [
-    "subnet-0c83c63373b488958",
-    "subnet-0ce1ab2325e388b70"
+    "subnet-",
+    "subnet-"
   ]
   description = "Private subnet IDs, must be defined if vpc-id is provided"
 }
@@ -54,35 +54,35 @@ variable "instance-type" {
 
 variable "key_name" {
   type        = string
-  default     = "KEY-UNION+GIMS-SSH-ALPHA-APNE2"
+  default     = ""
   description = ""
 }
 
 variable "ecs_namespace" {
   type        = string
-  default     = "arn:aws:servicediscovery:ap-northeast-2:183631341851:namespace/ns-tmwbmbllubp3ev2h"
+  default     = ""
   description = ""
 }
 
 variable "db-private-subnets" {
   type = list(string)
   default = [
-    "subnet-0fe22a673de723419",
-    "subnet-0dab44ad7eaa58ef9",
-    "subnet-02ad2ddeb0acfd1d3"
+    "subnet-",
+    "subnet-",
+    "subnet-"
   ]
   description = "DB Private subnet IDs, must be defined if vpc-id is provided"
 }
 
 variable "db-name" {
   type        = string
-  default     = "giantstep_oauth"
+  default     = ""
   description = "Keycloak DB name"
 }
 
 variable "db-username" {
   type        = string
-  default     = "admin"
+  default     = ""
   description = "Keycloak DB username"
 }
 
@@ -100,7 +100,7 @@ variable "db-instance-type" {
 
 variable "loadbalancer-certificate-arn" {
   type        = string
-  default     = "arn:aws:acm:ap-northeast-2:183631341851:certificate/4d2f8e58-3e5e-47c1-9dfa-b702bca3b315"
+  default     = ""
   description = "ARN of the ACM certificate to use for the load balancer"
 }
 
@@ -137,7 +137,7 @@ variable "memory_target_tracking_desired_value" {
 variable "default-tags" {
   type = map(any)
   default = {
-    Proj = "union+gims"
+    Proj = ""
   }
   description = "Default AWS tags to apply to all resources"
 }
